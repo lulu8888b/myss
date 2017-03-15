@@ -1,20 +1,57 @@
-# shadowsocks-net-speeder
+FROM alpine:latest
+MAINTAINER lulu8888b
+WORKDIR /
 
-FROM ubuntu:14.04.3
-MAINTAINER lowid <lowid@outlook.com>
-RUN apt-get update && \
-    apt-get install -y python-pip libnet1 libnet1-dev libpcap0.8 libpcap0.8-dev git
+ENV SS_VER=2.5.6
+ENV SS_URL=https://github.com/shadowsocks/shadowsocks-libev/archive/v$SS_VER.tar.gz
 
-RUN pip install shadowsocks==2.8.2
+ENV SERVER_ADDR 0.0.0.0
+ENV SERVER_PORT 8888
+ENV PASSWORD    password
+ENV METHOD      chacha20
+ENV TIMEOUT     300
+ENV DNS_ADDR    8.8.8.8
+ENV DNS_ADDR_2  8.8.4.4
 
-RUN git clone https://github.com/snooda/net-speeder.git net-speeder
-WORKDIR net-speeder
-RUN sh build.sh
+RUN set -ex && \
+    apk add --no-cache --virtual .build-deps \
+                                asciidoc \
+                                autoconf \
+                                build-base \
+                                curl \
+                                libtool \
+                                linux-headers \
+                                openssl-dev \
+                                pcre-dev \
+                                tar \
+                                xmlto && \
+    cd /tmp && \
+    curl -sSL $SS_URL | tar xz --strip 1 && \
+    ./configure --prefix=/usr --disable-documentation && \
+    make install && \
+    cd .. && \
 
-RUN mv net_speeder /usr/local/bin/
-COPY entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/net_speeder
+    runDeps="$( \
+        scanelf --needed --nobanner /usr/bin/ss-* \
+            | awk '{ gsub(/,/, "\nso:", $2); print "so:" $2 }' \
+            | xargs -r apk info --installed \
+            | sort -u \
+    )" && \
+    apk add --no-cache --virtual .run-deps $runDeps && \
+    apk del .build-deps && \
+    rm -rf /tmp/* && \
+    mv /usr/bin/ss-server /usr/bin/ssserver
 
-# Configure container to run as an executable
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+USER nobody
+
+EXPOSE $SERVER_PORT/tcp $SERVER_PORT/udp
+
+CMD ssserver -s $SERVER_ADDR \
+              -p $SERVER_PORT \
+              -k ${PASSWORD:-$(hostname)} \
+              -m $METHOD \
+              -t $TIMEOUT \
+              --fast-open \
+              -d $DNS_ADDR \
+              -d $DNS_ADDR_2 \
+              -u
