@@ -1,1 +1,1 @@
-# ss-with-net-speeder
+基于mrjin/shadowsocks修改
